@@ -1,34 +1,41 @@
-// ===== BloxWorks Backend =====
+// ==== Imports ====
 const express = require("express");
+const path = require("path");
+const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const nodemailer = require("nodemailer");
 const http = require("http");
 const { Server } = require("socket.io");
-const nodemailer = require("nodemailer");
-const path = require("path");
 
+// ==== Config ====
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+const PORT = process.env.PORT || 3000;
+const SECRET = "supersecretkey";
 
-const PORT = 3000;
-const JWT_SECRET = "super_secret_key_here";
-
+// ==== Middleware ====
 app.use(express.json());
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(__dirname)); // Serve index.html
 
-const db = new sqlite3.Database("data.db");
+// ==== Persistent DB Path ====
+const dataDir = path.join(__dirname, "data");
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
-// ===== Ensure Tables =====
+const dbPath = path.join(dataDir, "data.db");
+const db = new sqlite3.Database(dbPath);
+
+// ==== Init Tables ====
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     email TEXT UNIQUE,
-    password_hash TEXT,
+    password TEXT,
     is_admin INTEGER DEFAULT 0,
     banned INTEGER DEFAULT 0
   )`);
@@ -37,13 +44,13 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
     username TEXT,
-    mode TEXT,
     title TEXT,
     description TEXT,
     budget TEXT,
     payment TEXT,
     timeline TEXT,
     category TEXT,
+    mode TEXT,
     created_at INTEGER,
     suspended INTEGER DEFAULT 0
   )`);
@@ -53,33 +60,29 @@ db.serialize(() => {
     from_user TEXT,
     to_user TEXT,
     text TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at INTEGER DEFAULT (strftime('%s','now'))
   )`);
 });
 
-// ===== Mailer (Reports) =====
+// ==== Nodemailer Setup (Reports) ====
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: "bloxworksreports@gmail.com",
-    pass: "wnhx gcdt zqtj evsk" // your Gmail app password
+    pass: "wnhx gcdt zqtj evsk" // Gmail App Password
   }
 });
 
+// ==== Helpers ====
 function generateToken(user) {
-  return jwt.sign({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    is_admin: user.is_admin
-  }, JWT_SECRET);
+  return jwt.sign(user, SECRET);
 }
 
 function requireAuth(req, res, next) {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ error: "Not logged in" });
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    req.user = jwt.verify(token, SECRET);
     next();
   } catch {
     return res.status(403).json({ error: "Invalid token" });
@@ -93,7 +96,19 @@ function requireAdmin(req, res, next) {
   });
 }
 
-// ===== Signup =====
+// ==== Routes ====
+
+// Serve index.html at /
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// Health check for Render
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
+// ===== Auth =====
 app.post("/api/signup", async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) return res.status(400).json({ error: "Missing fields" });
@@ -101,7 +116,7 @@ app.post("/api/signup", async (req, res) => {
   const hash = await bcrypt.hash(password, 10);
   const is_admin = (email === "bloxworksreports@gmail.com") ? 1 : 0;
 
-  db.run("INSERT INTO users (username,email,password_hash,is_admin) VALUES (?,?,?,?)",
+  db.run("INSERT INTO users (username,email,password,is_admin) VALUES (?,?,?,?)",
     [username, email, hash, is_admin],
     function (err) {
       if (err) return res.status(400).json({ error: "User exists" });
@@ -111,40 +126,31 @@ app.post("/api/signup", async (req, res) => {
     });
 });
 
-// ===== Login =====
 app.post("/api/login", (req, res) => {
   const { username, password } = req.body;
   db.get("SELECT * FROM users WHERE username=?", [username], async (err, user) => {
     if (!user) return res.status(400).json({ error: "No user" });
     if (user.banned) return res.status(403).json({ error: "User banned" });
 
-    const ok = await bcrypt.compare(password, user.password_hash);
+    const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(400).json({ error: "Wrong password" });
 
-    const is_admin = (user.email === "bloxworksreports@gmail.com") ? 1 : user.is_admin;
-    const token = generateToken({ ...user, is_admin });
-    res.cookie("token", token).json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      is_admin
-    });
+    const token = generateToken(user);
+    res.cookie("token", token).json(user);
   });
 });
 
-// ===== Stay Logged In =====
 app.get("/api/loginStatus", (req,res)=>{
   const token = req.cookies.token;
   if(!token) return res.status(401).end();
   try {
-    const user = jwt.verify(token, JWT_SECRET);
+    const user = jwt.verify(token, SECRET);
     res.json(user);
   } catch {
     res.status(401).end();
   }
 });
 
-// ===== Delete Account =====
 app.post("/api/deleteAccount", requireAuth, (req, res) => {
   const username = req.user.username;
   db.run("DELETE FROM users WHERE username=?", [username], (err) => {
@@ -159,12 +165,9 @@ app.post("/api/deleteAccount", requireAuth, (req, res) => {
 // ===== Posts =====
 app.get("/api/posts", (req, res) => {
   const now = Date.now();
-  const expiry = 72*60*60*1000;
+  const expiry = 72*60*60*1000; // 72 hours
   db.all("SELECT * FROM posts WHERE suspended=0", (err, rows) => {
-    if (err) {
-      console.error("DB error:", err.message);
-      return res.status(500).json({ error: err.message });
-    }
+    if (err) return res.status(500).json({ error: err.message });
     if (!rows) rows = [];
     rows.forEach(r=>{
       if(now - r.created_at > expiry){
@@ -172,10 +175,7 @@ app.get("/api/posts", (req, res) => {
       }
     });
     db.all("SELECT * FROM posts WHERE suspended=0", (err2, rows2) => {
-      if(err2) {
-        console.error("DB error after cleanup:", err2.message);
-        return res.status(500).json({ error: err2.message });
-      }
+      if(err2) return res.status(500).json({ error: err2.message });
       res.json(rows2 || []);
     });
   });
@@ -186,7 +186,6 @@ app.post("/api/posts", requireAuth, (req, res) => {
   if(!title || !description) return res.status(400).json({error:"Missing fields"});
 
   db.get("SELECT * FROM posts WHERE user_id=?", [req.user.id], (err, existing) => {
-    if (err) return res.status(500).json({ error: err.message });
     if (existing) return res.status(400).json({ error: "Already have a post" });
 
     db.run(`INSERT INTO posts (user_id,username,mode,title,description,budget,payment,timeline,category,created_at)
@@ -202,7 +201,7 @@ app.post("/api/posts", requireAuth, (req, res) => {
 // ===== Messages =====
 app.get("/api/messages/:me/:other", requireAuth, (req, res) => {
   const { me, other } = req.params;
-  db.all("SELECT * FROM messages WHERE (from_user=? AND to_user=?) OR (from_user=? AND to_user=?) ORDER BY timestamp ASC",
+  db.all("SELECT * FROM messages WHERE (from_user=? AND to_user=?) OR (from_user=? AND to_user=?) ORDER BY created_at ASC",
     [me, other, other, me],
     (err, rows) => {
       if (err) return res.status(500).json({ error: "Failed" });
@@ -233,37 +232,42 @@ app.post("/api/report", (req, res) => {
   });
 });
 
-// ===== Admin Endpoints =====
+// ===== Admin =====
 app.get("/api/admin/users", requireAdmin, (req,res)=>{
   db.all("SELECT username,email,banned FROM users",(err,rows)=>{
     if(err) return res.status(500).json({error:"Failed"});
     res.json(rows||[]);
   });
 });
+
 app.get("/api/admin/posts", requireAdmin, (req,res)=>{
   db.all("SELECT * FROM posts",(err,rows)=>{
     if(err) return res.status(500).json({error:"Failed"});
     res.json(rows||[]);
   });
 });
+
 app.post("/api/deletePostAdmin", requireAdmin,(req,res)=>{
   db.run("DELETE FROM posts WHERE id=?",[req.body.id],(err)=>{
     if(err) return res.status(500).json({error:"Failed"});
     res.json({ok:true});
   });
 });
+
 app.post("/api/suspendPost", requireAdmin,(req,res)=>{
   db.run("UPDATE posts SET suspended=1 WHERE id=?",[req.body.id],(err)=>{
     if(err) return res.status(500).json({error:"Failed"});
     res.json({ok:true});
   });
 });
+
 app.post("/api/banUser", requireAdmin,(req,res)=>{
   db.run("UPDATE users SET banned=1 WHERE username=?",[req.body.username],(err)=>{
     if(err) return res.status(500).json({error:"Failed"});
     res.json({ok:true});
   });
 });
+
 app.post("/api/deleteUser", requireAdmin,(req,res)=>{
   db.run("DELETE FROM users WHERE username=?",[req.body.username],(err)=>{
     if(err) return res.status(500).json({error:"Failed"});
@@ -271,4 +275,7 @@ app.post("/api/deleteUser", requireAdmin,(req,res)=>{
   });
 });
 
-server.listen(PORT, () => console.log(`🚀 BloxWorks running at http://localhost:${PORT}`));
+// ==== Start Server ====
+server.listen(PORT, () => {
+  console.log(`🚀 BloxWorks running on http://localhost:${PORT}`);
+});
