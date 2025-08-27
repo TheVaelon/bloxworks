@@ -256,23 +256,6 @@ app.get("/api/messages/:me/:other", requireAuth, async (req, res) => {
   res.json(rows);
 });
 
-// ==== SOCKET.IO ====
-io.on("connection", (socket) => {
-  socket.on("join", (username) => {
-    socket.join(username);
-  });
-
-  socket.on("message", async (msg) => {
-    await pool.query("INSERT INTO messages (from_user,to_user,text) VALUES ($1,$2,$3)",
-      [msg.user, msg.to, msg.text]);
-    // send message to both users
-    io.to(msg.user).emit("message", msg);
-    io.to(msg.to).emit("message", msg);
-    // send notification to recipient
-    io.to(msg.to).emit("notification", { from: msg.user, text: msg.text, time: Date.now() });
-  });
-});
-
 // ===== Reports =====
 app.post("/api/report", async (req, res) => {
   const { accused, reason, reporter } = req.body;
@@ -319,6 +302,35 @@ app.post("/api/banUser", requireAdmin, async (req, res) => {
 app.post("/api/deleteUser", requireAdmin, async (req, res) => {
   await pool.query("DELETE FROM users WHERE username=$1", [req.body.username]);
   res.json({ ok: true });
+});
+
+// ==== Socket.IO ====
+io.on("connection", (socket) => {
+  console.log("✅ Socket connected");
+
+  socket.on("join", (username) => {
+    socket.username = username;
+    socket.join(username);
+    console.log(`${username} joined their room`);
+  });
+
+  socket.on("message", async (msg) => {
+    await pool.query("INSERT INTO messages (from_user,to_user,text) VALUES ($1,$2,$3)", 
+      [msg.user, msg.to, msg.text]);
+
+    // Send message to sender + receiver
+    io.to(msg.user).emit("message", msg);
+    io.to(msg.to).emit("message", msg);
+
+    // Send notification to receiver
+    if (msg.to !== msg.user) {
+      io.to(msg.to).emit("notification", { from: msg.user, text: msg.text, time: Date.now() });
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Socket disconnected");
+  });
 });
 
 // ==== Start Server ====

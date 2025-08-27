@@ -5,20 +5,22 @@
   <title>BloxWorks</title>
   <style>
     :root {
-      --bg: #f4f4f4; --text: #222; --card: #fff; --primary: #007bff; --header:#fff; --header-text:#222;
+      --bg: #e6f2ff; --text: #222; --card: #fff; --primary: #007bff; --header:#004080; --header-text:#fff;
     }
     body.dark {
       --bg:#1e1e1e; --text:#ddd; --card:#2b2b2b; --primary:#ff8800; --header:#2b2b2b; --header-text:#fff;
     }
     body { margin:0; font-family:Arial,sans-serif; background:var(--bg); color:var(--text);}
-    header { background:var(--header); color:var(--header-text); padding:10px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ccc;}
+    header { background:var(--header); color:var(--header-text); padding:10px 20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.2);}
     .logo{font-size:22px;font-weight:bold;}
     nav{display:flex;justify-content:center;margin:10px;flex-wrap:wrap;}
-    nav button{margin:5px;padding:8px 14px;border:none;cursor:pointer;border-radius:5px;background:var(--primary);color:white;position:relative;}
-    #notifBadge{position:absolute;top:2px;right:2px;background:red;color:white;font-size:12px;padding:2px 6px;border-radius:50%;display:none;}
+    nav button{margin:5px;padding:10px 16px;border:none;cursor:pointer;border-radius:6px;background:var(--primary);color:white;position:relative;transition:0.2s;}
+    nav button:hover{opacity:0.85;}
+    #notifBadge{position:absolute;top:0;right:0;background:red;color:white;font-size:12px;padding:2px 6px;border-radius:50%;display:none;}
     #content{padding:20px;max-width:1000px;margin:auto;}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px;}
-    .card{background:var(--card);padding:15px;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+    .card{background:var(--card);padding:15px;border-radius:8px;box-shadow:0 3px 6px rgba(0,0,0,0.15);transition:0.2s;}
+    .card:hover{transform:translateY(-2px);}
     input,textarea,select{width:100%;padding:8px;margin:5px 0;border-radius:4px;border:1px solid #ccc;background:var(--card);color:var(--text);}
     button.action{background:var(--primary);color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;}
     #chatBox{border:1px solid #ccc;height:250px;overflow-y:scroll;padding:10px;background:var(--card);}
@@ -63,8 +65,8 @@
       if(socket) return;
       socket = io();
 
-      // receive chat messages
       socket.on("message",msg=>{
+        // show message if in correct chat
         if((msg.to===privateChatUser&&msg.user===me.username)||(msg.user===privateChatUser&&msg.to===me.username)){
           const box=document.getElementById("chatBox");
           if(box){
@@ -72,15 +74,18 @@
             box.scrollTop=box.scrollHeight;
           }
         }
+        // if message is to me but I’m not in that chat → notification
+        if(msg.to===me.username && msg.user!==privateChatUser){
+          addNotification({from:msg.user,text:msg.text,time:Date.now()});
+        }
       });
 
-      // receive notifications
       socket.on("notification",note=>{
         addNotification(note);
       });
     }
 
-    // ==== NOTIFICATIONS HANDLING ====
+    // ==== NOTIFICATIONS ====
     function addNotification(note){
       notifications.push(note);
       localStorage.setItem("notifications", JSON.stringify(notifications));
@@ -89,7 +94,6 @@
         renderNotifications(document.getElementById("content"));
       }
     }
-
     function updateNotifBadge(){
       const badge=document.getElementById("notifBadge");
       if(notifications.length>0){
@@ -172,7 +176,7 @@
       if(res.ok){ 
         me=await res.json(); 
         initSocket();
-        socket.emit("join", me.username); 
+        socket.emit("join", me.username);
         showAuth(); 
       } else { const e=await res.json(); alert(e.error); }
     }
@@ -271,4 +275,130 @@
       alert("Updated!"); showTab("myposts");
     }
     async function deletePost(id){
-      await fetch("/api/deletePost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});
+      await fetch("/api/deletePost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});alert("Deleted"); showTab("browse");
+    }
+
+    // ==== CHATS ====
+    async function renderChats(c){
+      if(!privateChatUser){c.innerHTML="<h2>Chats</h2><p>Open a chat from a post.</p>"; return;}
+      const pinnedClass=pinnedChats.includes(privateChatUser)?"pinned":"";
+      c.innerHTML=`<h2>Chat with ${privateChatUser} <button onclick="pinChat('${privateChatUser}')">📌</button></h2>
+        <div id="chatBox" class="${pinnedClass}"></div>
+        <input id="chatInput" placeholder="Message">
+        <button onclick="sendMsg()">Send</button>`;
+      loadMessages();
+    }
+    function openPrivateChat(user){ 
+      privateChatUser=user; 
+      notifications = notifications.filter(n=>n.from!==user);
+      localStorage.setItem("notifications",JSON.stringify(notifications));
+      updateNotifBadge();
+      showTab("chats"); 
+    }
+    async function sendMsg(){
+      const text=document.getElementById("chatInput").value;
+      if(!text.trim()) return;
+      socket.emit("message",{user:me.username,text,to:privateChatUser}); 
+      document.getElementById("chatInput").value="";
+    }
+    async function loadMessages(){
+      const res=await fetch(`/api/messages/${me.username}/${privateChatUser}`,{credentials:"include"});
+      const msgs=await res.json(); const box=document.getElementById("chatBox"); box.innerHTML="";
+      msgs.forEach(m=>{ box.innerHTML+=`<div class="msg"><b>${m.from_user}:</b> ${m.text}</div>`; });
+      box.scrollTop=box.scrollHeight;
+    }
+    function pinChat(user){
+      if(pinnedChats.includes(user)){ pinnedChats=pinnedChats.filter(u=>u!==user); }
+      else pinnedChats.push(user);
+      localStorage.setItem("pinnedChats",JSON.stringify(pinnedChats));
+      alert("Pinned chats updated!");
+    }
+
+    // ==== NOTIFICATIONS ====
+    function renderNotifications(c){
+      c.innerHTML="<h2>Notifications</h2>";
+      if(notifications.length===0){ c.innerHTML+="<p>No new notifications.</p>"; updateNotifBadge(); return; }
+      notifications.forEach((n,i)=>{
+        c.innerHTML+=`<div class="card"><b>${n.from}</b>: ${n.text}<br>
+          <small>${new Date(n.time||Date.now()).toLocaleString()}</small><br>
+          <button onclick="openPrivateChat('${n.from}')">Open Chat</button>
+          <button onclick="clearNotification(${i})">Dismiss</button></div>`;
+      });
+      updateNotifBadge();
+    }
+    function clearNotification(i){
+      notifications.splice(i,1);
+      localStorage.setItem("notifications",JSON.stringify(notifications));
+      renderNotifications(document.getElementById("content"));
+    }
+
+    // ==== REPORT ====
+    function renderReport(c){
+      c.innerHTML=`<h2>Report Scammer</h2>
+      <div class="card">
+        <input id="accused" placeholder="Scammer Username">
+        <input id="reporterEmail" type="email" placeholder="Your Email">
+        <textarea id="reason" placeholder="Reason"></textarea>
+        <button class="action" onclick="sendReport()">Submit</button>
+        <div id="reportMsg"></div>
+      </div>`;
+    }
+    async function sendReport(){
+      const accused=document.getElementById("accused").value;
+      const reason=document.getElementById("reason").value;
+      const reporter=document.getElementById("reporterEmail").value;
+      const res=await fetch("/api/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accused,reason,reporter}),credentials:"include"});
+      document.getElementById("reportMsg").innerText=res.ok?"✅ Report Sent":"❌ Failed";
+    }
+
+    // ==== SETTINGS ====
+    function renderSettings(c){
+      c.innerHTML=`<h2>Settings</h2>
+        <button onclick="deleteAccount()">Delete My Account</button>`;
+    }
+    async function deleteAccount(){
+      if(confirm("Are you sure you want to delete your account? This cannot be undone.")){
+        await fetch("/api/deleteAccount",{method:"POST",credentials:"include"});
+        alert("Account deleted."); logout();
+      }
+    }
+
+    // ==== ADMIN ====
+    async function renderAdmin(c){
+      c.innerHTML="<h2>Admin Dashboard</h2>";
+      const users=await (await fetch("/api/admin/users",{credentials:"include"})).json();
+      const posts=await (await fetch("/api/admin/posts",{credentials:"include"})).json();
+      c.innerHTML+=`<h3>Users</h3><div class="grid">`+users.map(u=>`
+        <div class="card">
+          <b>${u.username}</b> (${u.email}) ${u.banned?"[BANNED]":""}
+          <br><button onclick="banUser('${u.username}')">🚫 Ban</button>
+          <button onclick="deleteUser('${u.username}')">🗑 Delete</button>
+        </div>`).join("")+"</div>";
+      c.innerHTML+=`<h3>Posts</h3><div class="grid">`+posts.map(p=>`
+        <div class="card">
+          <b>${p.title}</b> by ${p.username}
+          <br>${p.description}
+          <br><button onclick="adminDeletePost(${p.id})">🗑 Delete</button>
+          <button onclick="adminSuspendPost(${p.id})">⏸ Suspend</button>
+        </div>`).join("")+"</div>";
+    }
+    async function adminDeletePost(id){await fetch("/api/deletePostAdmin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});alert("Deleted");showTab("admin");}
+    async function adminSuspendPost(id){await fetch("/api/suspendPost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});alert("Suspended");showTab("admin");}
+    async function banUser(u){await fetch("/api/banUser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u}),credentials:"include"});alert("Banned");showTab("admin");}
+    async function deleteUser(u){await fetch("/api/deleteUser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u}),credentials:"include"});alert("Deleted");showTab("admin");}
+
+    // ==== AUTO LOGIN RESTORE ====
+    async function checkAuth() {
+      const res = await fetch("/api/loginStatus",{credentials:"include"});
+      if(res.ok){ 
+        me = await res.json(); 
+        initSocket();
+        socket.emit("join", me.username);
+        showAuth(); 
+      } else showAuth();
+      updateNotifBadge();
+    }
+    checkAuth();
+  </script>
+</body>
+</html>
