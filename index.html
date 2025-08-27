@@ -5,28 +5,120 @@
   <title>BloxWorks</title>
   <style>
     :root {
-      --bg: #e6f2ff; --text: #222; --card: #fff; --primary: #007bff; --header:#004080; --header-text:#fff;
+      --bg: #e6f2ff; 
+      --text: #222; 
+      --card: #ffffff; 
+      --primary: #007bff; 
+      --header:#004080; 
+      --header-text:#fff;
+      --card-border:#cce0ff;
     }
     body.dark {
-      --bg:#1e1e1e; --text:#ddd; --card:#2b2b2b; --primary:#ff8800; --header:#2b2b2b; --header-text:#fff;
+      --bg:#1e1e1e; 
+      --text:#ddd; 
+      --card:#2b2b2b; 
+      --primary:#ff8800; 
+      --header:#2b2b2b; 
+      --header-text:#fff;
+      --card-border:#444;
     }
-    body { margin:0; font-family:Arial,sans-serif; background:var(--bg); color:var(--text);}
-    header { background:var(--header); color:var(--header-text); padding:10px 20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.2);}
+    body { 
+      margin:0; 
+      font-family:Arial,sans-serif; 
+      background:var(--bg); 
+      color:var(--text);
+    }
+    header { 
+      background:var(--header); 
+      color:var(--header-text); 
+      padding:10px 20px; 
+      display:flex; 
+      justify-content:space-between; 
+      align-items:center; 
+      box-shadow:0 2px 6px rgba(0,0,0,0.2);
+    }
     .logo{font-size:22px;font-weight:bold;}
-    nav{display:flex;justify-content:center;margin:10px;flex-wrap:wrap;}
-    nav button{margin:5px;padding:10px 16px;border:none;cursor:pointer;border-radius:6px;background:var(--primary);color:white;position:relative;transition:0.2s;}
+    nav{
+      display:flex;
+      justify-content:center;
+      margin:10px;
+      flex-wrap:wrap;
+    }
+    nav button{
+      margin:5px;
+      padding:10px 16px;
+      border:none;
+      cursor:pointer;
+      border-radius:6px;
+      background:var(--primary);
+      color:white;
+      position:relative;
+      transition:0.2s;
+    }
     nav button:hover{opacity:0.85;}
-    #notifBadge{position:absolute;top:0;right:0;background:red;color:white;font-size:12px;padding:2px 6px;border-radius:50%;display:none;}
+    #notifBadge{
+      position:absolute;
+      top:0;
+      right:0;
+      background:red;
+      color:white;
+      font-size:12px;
+      padding:2px 6px;
+      border-radius:50%;
+      display:none;
+    }
     #content{padding:20px;max-width:1000px;margin:auto;}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px;}
-    .card{background:var(--card);padding:15px;border-radius:8px;box-shadow:0 3px 6px rgba(0,0,0,0.15);transition:0.2s;}
-    .card:hover{transform:translateY(-2px);}
-    input,textarea,select{width:100%;padding:8px;margin:5px 0;border-radius:4px;border:1px solid #ccc;background:var(--card);color:var(--text);}
-    button.action{background:var(--primary);color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;}
-    #chatBox{border:1px solid #ccc;height:250px;overflow-y:scroll;padding:10px;background:var(--card);}
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+      gap:20px;
+    }
+    .card{
+      background:var(--card);
+      padding:18px;
+      border-radius:10px;
+      border:2px solid var(--card-border);
+      box-shadow:0 4px 8px rgba(0,0,0,0.15);
+      transition:0.2s;
+      min-height:180px;
+    }
+    .card:hover{transform:translateY(-3px);}
+    input,textarea,select{
+      width:100%;
+      padding:8px;
+      margin:5px 0;
+      border-radius:4px;
+      border:1px solid #ccc;
+      background:var(--card);
+      color:var(--text);
+    }
+    button.action{
+      background:var(--primary);
+      color:white;
+      border:none;
+      padding:8px 12px;
+      border-radius:4px;
+      cursor:pointer;
+    }
+    #chatBox{
+      border:1px solid #ccc;
+      height:250px;
+      overflow-y:scroll;
+      padding:10px;
+      background:var(--card);
+    }
     .msg{margin:5px 0;}
     .hidden{display:none;}
     .pinned{border:2px solid gold;}
+    .tos-box {
+      max-height:150px;
+      overflow-y:auto;
+      padding:10px;
+      margin:10px 0;
+      border:1px solid #ccc;
+      background:#f9f9f9;
+      font-size:13px;
+    }
   </style>
 </head>
 <body>
@@ -43,6 +135,7 @@
     <button onclick="showTab('chats')">Chats</button>
     <button onclick="showTab('notifications')">Notifications <span id="notifBadge">0</span></button>
     <button onclick="showTab('report')">Report</button>
+    <button onclick="showTab('plans')">Plans</button>
     <button onclick="showTab('settings')">Settings</button>
     <button id="adminBtn" class="hidden" onclick="showTab('admin')">Admin Dashboard</button>
     <button onclick="logout()">Logout</button>
@@ -51,6 +144,7 @@
   <div id="content"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://www.paypal.com/sdk/js?client-id=AdPtlE6hfWgvZjnxgKA6DAZRqRh8sZp32MNKOSbWysNAfBYYT5YL0dhDWDwAS5KjPayN4jvc7BCQc1ab&vault=true&intent=subscription"></script>
   <script>
     let me=null; 
     let socket=null; 
@@ -64,9 +158,7 @@
     function initSocket(){
       if(socket) return;
       socket = io();
-
       socket.on("message",msg=>{
-        // show message if in correct chat
         if((msg.to===privateChatUser&&msg.user===me.username)||(msg.user===privateChatUser&&msg.to===me.username)){
           const box=document.getElementById("chatBox");
           if(box){
@@ -74,12 +166,10 @@
             box.scrollTop=box.scrollHeight;
           }
         }
-        // if message is to me but I’m not in that chat → notification
         if(msg.to===me.username && msg.user!==privateChatUser){
           addNotification({from:msg.user,text:msg.text,time:Date.now()});
         }
       });
-
       socket.on("notification",note=>{
         addNotification(note);
       });
@@ -113,7 +203,15 @@
         div.innerHTML=`<input id="username" placeholder="Username">
         <input id="email" placeholder="Email">
         <input id="password" type="password" placeholder="Password">
-        <label><input type="checkbox" id="tosCheck"> I agree to Terms</label><br>
+        <div class="tos-box">
+          <h4>Terms of Service</h4>
+          <p>By using BloxWorks you agree that this platform is provided "as is" without warranties. 
+          We are not liable for damages, losses, scams, or disputes between users. 
+          Users are solely responsible for their interactions and agreements. 
+          All payments, hires, and collaborations are at your own risk. 
+          BloxWorks disclaims liability to the fullest extent permitted by law.</p>
+        </div>
+        <label><input type="checkbox" id="tosCheck"> I agree to Terms of Service</label><br>
         <button onclick="signup()">Sign Up</button>
         <button onclick="login()">Login</button>`;
         document.getElementById("content").innerHTML="";
@@ -127,7 +225,7 @@
     }
 
     async function signup(){
-      if(!document.getElementById("tosCheck").checked) return alert("You must agree to Terms");
+      if(!document.getElementById("tosCheck").checked) return alert("You must agree to Terms of Service");
       const username=document.getElementById("username").value.trim();
       const email=document.getElementById("email").value.trim();
       const password=document.getElementById("password").value.trim();
@@ -193,6 +291,7 @@
       if(tab==="chats") renderChats(c);
       if(tab==="notifications") renderNotifications(c);
       if(tab==="report") renderReport(c);
+      if(tab==="plans") renderPlans(c);
       if(tab==="settings") renderSettings(c);
       if(tab==="admin") renderAdmin(c);
     }
@@ -279,45 +378,67 @@
     }
 
     // ==== CHATS ====
-    async function renderChats(c){
-      if(!privateChatUser){c.innerHTML="<h2>Chats</h2><p>Open a chat from a post.</p>"; return;}
-      const pinnedClass=pinnedChats.includes(privateChatUser)?"pinned":"";
-      c.innerHTML=`<h2>Chat with ${privateChatUser} <button onclick="pinChat('${privateChatUser}')">📌</button></h2>
-        <div id="chatBox" class="${pinnedClass}"></div>
-        <input id="chatInput" placeholder="Message">
-        <button onclick="sendMsg()">Send</button>`;
-      loadMessages();
-    }
-    function openPrivateChat(user){ 
-      privateChatUser=user; 
-      notifications = notifications.filter(n=>n.from!==user);
-      localStorage.setItem("notifications",JSON.stringify(notifications));
-      updateNotifBadge();
-      showTab("chats"); 
-    }
-    async function sendMsg(){
-      const text=document.getElementById("chatInput").value;
-      if(!text.trim()) return;
-      socket.emit("message",{user:me.username,text,to:privateChatUser}); 
-      document.getElementById("chatInput").value="";
-    }
-    async function loadMessages(){
-      const res=await fetch(`/api/messages/${me.username}/${privateChatUser}`,{credentials:"include"});
-      const msgs=await res.json(); const box=document.getElementById("chatBox"); box.innerHTML="";
-      msgs.forEach(m=>{ box.innerHTML+=`<div class="msg"><b>${m.from_user}:</b> ${m.text}</div>`; });
-      box.scrollTop=box.scrollHeight;
-    }
-    function pinChat(user){
-      if(pinnedChats.includes(user)){ pinnedChats=pinnedChats.filter(u=>u!==user); }
-      else pinnedChats.push(user);
-      localStorage.setItem("pinnedChats",JSON.stringify(pinnedChats));
-      alert("Pinned chats updated!");
-    }
+async function renderChats(c){
+  if(!privateChatUser){
+    c.innerHTML="<h2>Chats</h2><p>Open a chat from a post.</p>";
+    return;
+  }
+  const pinnedClass=pinnedChats.includes(privateChatUser)?"pinned":"";
+  c.innerHTML=`<h2>Chat with ${privateChatUser} <button onclick="pinChat('${privateChatUser}')">📌</button></h2>
+    <div id="chatBox" class="${pinnedClass}"></div>
+    <input id="chatInput" placeholder="Message">
+    <button onclick="sendMsg()">Send</button>`;
+  loadMessages();
+}
+
+function openPrivateChat(user){ 
+  privateChatUser=user; 
+  notifications = notifications.filter(n=>n.from!==user);
+  localStorage.setItem("notifications",JSON.stringify(notifications));
+  updateNotifBadge();
+  showTab("chats"); 
+}
+
+async function sendMsg(){
+  const text=document.getElementById("chatInput").value;
+  if(!text.trim()) return;
+  socket.emit("message",{user:me.username,text,to:privateChatUser}); 
+  document.getElementById("chatInput").value="";
+  const box=document.getElementById("chatBox");
+  if(box){
+    box.innerHTML+=`<div class="msg"><b>${me.username}:</b> ${text}</div>`;
+    box.scrollTop=box.scrollHeight;
+  }
+}   // ✅ this closes sendMsg()
+
+async function loadMessages(){
+  const res=await fetch(`/api/messages/${me.username}/${privateChatUser}`,{credentials:"include"});
+  const msgs=await res.json(); 
+  const box=document.getElementById("chatBox"); 
+  box.innerHTML="";
+  msgs.forEach(m=>{
+    box.innerHTML+=`<div class="msg"><b>${m.from_user}:</b> ${m.text}</div>`;
+  });
+  box.scrollTop=box.scrollHeight;
+}
+
+function pinChat(user){
+  if(pinnedChats.includes(user)){ 
+    pinnedChats=pinnedChats.filter(u=>u!==user); 
+  } else pinnedChats.push(user);
+  localStorage.setItem("pinnedChats",JSON.stringify(pinnedChats));
+  alert("Pinned chats updated!");
+}
+
 
     // ==== NOTIFICATIONS ====
     function renderNotifications(c){
       c.innerHTML="<h2>Notifications</h2>";
-      if(notifications.length===0){ c.innerHTML+="<p>No new notifications.</p>"; updateNotifBadge(); return; }
+      if(notifications.length===0){ 
+        c.innerHTML+="<p>No new notifications.</p>"; 
+        updateNotifBadge(); 
+        return; 
+      }
       notifications.forEach((n,i)=>{
         c.innerHTML+=`<div class="card"><b>${n.from}</b>: ${n.text}<br>
           <small>${new Date(n.time||Date.now()).toLocaleString()}</small><br>
@@ -350,6 +471,74 @@
       const res=await fetch("/api/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accused,reason,reporter}),credentials:"include"});
       document.getElementById("reportMsg").innerText=res.ok?"✅ Report Sent":"❌ Failed";
     }
+
+    // ==== PLANS ====
+function renderPlans(c){
+  c.innerHTML=`<h2>Choose a Plan</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Free</h3>
+      <p>Basic access to BloxWorks.</p>
+      <p>✅ Browse & create posts</p>
+      <p>✅ Basic chat</p>
+      <p>❌ No premium features</p>
+    </div>
+    <div class="card">
+      <h3>Plus</h3>
+      <p>Get more features & visibility.</p>
+      <div id="paypal-button-container-plus"></div>
+    </div>
+    <div class="card">
+      <h3>Pro</h3>
+      <p>Unlock everything and boost your hiring power.</p>
+      <div id="paypal-button-container-pro"></div>
+    </div>
+  </div>`;
+
+  // PLUS plan
+  paypal.Buttons({
+    style: {shape:'rect',color:'gold',layout:'vertical',label:'subscribe'},
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: 'P-1RT56666FT4517249NCXPAQQ' });
+    },
+    onApprove: async function(data, actions) {
+      alert("Thanks for subscribing to PLUS!");
+      // Persist subscription in DB
+      await fetch("/api/setSubscription", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        credentials:"include",
+        body:JSON.stringify({
+          plan:"plus",
+          paypal_sub_id:data.subscriptionID,
+          expires_at:null
+        })
+      });
+    }
+  }).render('#paypal-button-container-plus');
+
+  // PRO plan
+  paypal.Buttons({
+    style: {shape:'rect',color:'gold',layout:'vertical',label:'subscribe'},
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: 'P-2XW832253H215311DNCXPDAA' });
+    },
+    onApprove: async function(data, actions) {
+      alert("Thanks for subscribing to PRO!");
+      // Persist subscription in DB
+      await fetch("/api/setSubscription", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        credentials:"include",
+        body:JSON.stringify({
+          plan:"pro",
+          paypal_sub_id:data.subscriptionID,
+          expires_at:null
+        })
+      });
+    }
+  }).render('#paypal-button-container-pro');
+}
 
     // ==== SETTINGS ====
     function renderSettings(c){
