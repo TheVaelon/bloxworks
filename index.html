@@ -5,7 +5,7 @@
   <title>BloxWorks</title>
   <style>
     :root {
-      --bg: #f4f4f4; --text: #222; --card: #fff; --primary: #28a745; --header:#fff; --header-text:#222;
+      --bg: #f4f4f4; --text: #222; --card: #fff; --primary: #007bff; --header:#fff; --header-text:#222;
     }
     body.dark {
       --bg:#1e1e1e; --text:#ddd; --card:#2b2b2b; --primary:#ff8800; --header:#2b2b2b; --header-text:#fff;
@@ -14,7 +14,8 @@
     header { background:var(--header); color:var(--header-text); padding:10px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ccc;}
     .logo{font-size:22px;font-weight:bold;}
     nav{display:flex;justify-content:center;margin:10px;flex-wrap:wrap;}
-    nav button{margin:5px;padding:8px 14px;border:none;cursor:pointer;border-radius:5px;background:var(--primary);color:white;}
+    nav button{margin:5px;padding:8px 14px;border:none;cursor:pointer;border-radius:5px;background:var(--primary);color:white;position:relative;}
+    #notifBadge{position:absolute;top:2px;right:2px;background:red;color:white;font-size:12px;padding:2px 6px;border-radius:50%;display:none;}
     #content{padding:20px;max-width:1000px;margin:auto;}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px;}
     .card{background:var(--card);padding:15px;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,0.1);}
@@ -38,7 +39,7 @@
     <button onclick="showTab('create')">Create Post</button>
     <button onclick="showTab('myposts')">My Posts</button>
     <button onclick="showTab('chats')">Chats</button>
-    <button onclick="showTab('notifications')">Notifications</button>
+    <button onclick="showTab('notifications')">Notifications <span id="notifBadge">0</span></button>
     <button onclick="showTab('report')">Report</button>
     <button onclick="showTab('settings')">Settings</button>
     <button id="adminBtn" class="hidden" onclick="showTab('admin')">Admin Dashboard</button>
@@ -53,8 +54,51 @@
     let socket=null; 
     let privateChatUser=null;
     let pinnedChats = JSON.parse(localStorage.getItem("pinnedChats")||"[]");
+    let notifications = JSON.parse(localStorage.getItem("notifications")||"[]");
 
     function toggleTheme(){document.body.classList.toggle("dark");}
+
+    // ==== SOCKET INIT ====
+    function initSocket(){
+      if(socket) return;
+      socket = io();
+
+      // receive chat messages
+      socket.on("message",msg=>{
+        if((msg.to===privateChatUser&&msg.user===me.username)||(msg.user===privateChatUser&&msg.to===me.username)){
+          const box=document.getElementById("chatBox");
+          if(box){
+            box.innerHTML+=`<div class="msg"><b>${msg.user}:</b> ${msg.text}</div>`;
+            box.scrollTop=box.scrollHeight;
+          }
+        }
+      });
+
+      // receive notifications
+      socket.on("notification",note=>{
+        addNotification(note);
+      });
+    }
+
+    // ==== NOTIFICATIONS HANDLING ====
+    function addNotification(note){
+      notifications.push(note);
+      localStorage.setItem("notifications", JSON.stringify(notifications));
+      updateNotifBadge();
+      if(document.getElementById("content").dataset.tab==="notifications"){
+        renderNotifications(document.getElementById("content"));
+      }
+    }
+
+    function updateNotifBadge(){
+      const badge=document.getElementById("notifBadge");
+      if(notifications.length>0){
+        badge.style.display="inline-block";
+        badge.textContent=notifications.length;
+      } else {
+        badge.style.display="none";
+      }
+    }
 
     // ==== AUTH ====
     function showAuth(){
@@ -65,14 +109,7 @@
         div.innerHTML=`<input id="username" placeholder="Username">
         <input id="email" placeholder="Email">
         <input id="password" type="password" placeholder="Password">
-        <div style="border:1px solid #ccc; padding:8px; max-height:100px; overflow-y:auto; font-size:12px; margin:8px 0; background:#fdfdfd;">
-          <b>BloxWorks Terms of Service</b><br>
-          • You are 13+.<br>
-          • No scams, spam, harassment or illegal activity.<br>
-          • Payments are between users, BloxWorks is not liable.<br>
-          • Reports may result in suspension/ban.<br>
-        </div>
-        <label><input type="checkbox" id="tosCheck"> I agree to the Terms of Service</label><br>
+        <label><input type="checkbox" id="tosCheck"> I agree to Terms</label><br>
         <button onclick="signup()">Sign Up</button>
         <button onclick="login()">Login</button>`;
         document.getElementById("content").innerHTML="";
@@ -86,7 +123,7 @@
     }
 
     async function signup(){
-      if(!document.getElementById("tosCheck").checked) return alert("You must agree to the Terms of Service");
+      if(!document.getElementById("tosCheck").checked) return alert("You must agree to Terms");
       const username=document.getElementById("username").value.trim();
       const email=document.getElementById("email").value.trim();
       const password=document.getElementById("password").value.trim();
@@ -97,7 +134,29 @@
         body:JSON.stringify({username,email,password}),
         credentials:"include"
       });
-      if(res.ok){ me=await res.json(); showAuth(); } else { const e=await res.json(); alert(e.error); }
+      if(res.ok){ 
+        alert("Signup successful! A 6-digit code has been sent to your email.");
+        renderVerify(email);
+      } else { const e=await res.json(); alert(e.error); }
+    }
+
+    function renderVerify(email){
+      document.getElementById("content").innerHTML=`
+        <h2>Verify Email</h2>
+        <input id="vcode" placeholder="Enter 6-digit code">
+        <button onclick="verifyCode('${email}')">Verify</button>`;
+    }
+
+    async function verifyCode(email){
+      const code=document.getElementById("vcode").value.trim();
+      const res=await fetch("/api/verifyCode",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({email,code}),
+        credentials:"include"
+      });
+      if(res.ok){ alert("Email verified! You can now log in."); showAuth(); }
+      else { const e=await res.json(); alert(e.error); }
     }
 
     async function login(){
@@ -110,14 +169,20 @@
         body:JSON.stringify({username,password}),
         credentials:"include"
       });
-      if(res.ok){ me=await res.json(); showAuth(); } else { const e=await res.json(); alert(e.error); }
+      if(res.ok){ 
+        me=await res.json(); 
+        initSocket();
+        socket.emit("join", me.username); 
+        showAuth(); 
+      } else { const e=await res.json(); alert(e.error); }
     }
 
     function logout(){ me=null; document.cookie="token=; Max-Age=0"; showAuth(); }
 
-    // ==== NAV ====
+    // ==== NAV HANDLER ====
     function showTab(tab){
       const c=document.getElementById("content");
+      c.dataset.tab=tab;
       if(tab==="browse") renderBrowse(c);
       if(tab==="create") renderCreate(c);
       if(tab==="myposts") renderMyPosts(c);
@@ -144,20 +209,11 @@
       const uf=document.getElementById("userFilter")?.value||"";
       if(!Array.isArray(posts)) { list.innerHTML="<p>Error loading posts.</p>"; return; }
       posts.filter(p=>(filter==="all"||p.mode===filter)&&(uf===""||p.username.includes(uf))).forEach(p=>{
-        let timeLeft = "";
-        const now = Date.now();
-        const expiry = 72*60*60*1000;
-        const remain = expiry - (now - p.created_at);
-        if(remain>0){
-          const h=Math.floor(remain/3600000); const d=Math.floor(h/24);
-          timeLeft = `Expires in ${d}d ${h%24}h`;
-        } else timeLeft="Expired";
         list.innerHTML+=`<div class="card">
           <h3>${p.title}</h3>
           <p>${p.description}</p>
           <p><b>Budget:</b> ${p.budget} | <b>Payment:</b> ${p.payment} | <b>Timeline:</b> ${p.timeline} | <b>Category:</b> ${p.category}</p>
           <i>${p.mode} by ${p.username}</i><br>
-          <small>${timeLeft}</small><br>
           <button onclick="openPrivateChat('${p.username}')">💬 Chat</button>
           ${me.is_admin?`<button onclick="adminDeletePost(${p.id})">🗑 Delete</button><button onclick="adminSuspendPost(${p.id})">⏸ Suspend</button>`:""}
         </div>`;
@@ -216,122 +272,3 @@
     }
     async function deletePost(id){
       await fetch("/api/deletePost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});
-      alert("Deleted!"); showTab("browse");
-    }
-
-    // ==== CHATS ====
-    async function renderChats(c){
-      if(!privateChatUser){c.innerHTML="<h2>Chats</h2><p>Open a chat from a post.</p>"; return;}
-      const pinnedClass=pinnedChats.includes(privateChatUser)?"pinned":"";
-      c.innerHTML=`<h2>Chat with ${privateChatUser} <button onclick="pinChat('${privateChatUser}')">📌</button></h2>
-        <div id="chatBox" class="${pinnedClass}"></div>
-        <input id="chatInput" placeholder="Message">
-        <button onclick="sendMsg()">Send</button>`;
-      if(!socket){socket=io(); socket.on("message",msg=>{
-        if((msg.to===privateChatUser&&msg.user===me.username)||(msg.user===privateChatUser&&msg.to===me.username)){
-          const box=document.getElementById("chatBox");
-          box.innerHTML+=`<div class="msg"><b>${msg.user}:</b> ${msg.text}</div>`; box.scrollTop=box.scrollHeight;
-        }
-      });}
-      loadMessages();
-    }
-    function openPrivateChat(user){ privateChatUser=user; showTab("chats"); }
-    async function sendMsg(){
-      const text=document.getElementById("chatInput").value;
-      socket.emit("message",{user:me.username,text,to:privateChatUser}); document.getElementById("chatInput").value="";
-    }
-    async function loadMessages(){
-      const res=await fetch(`/api/messages/${me.username}/${privateChatUser}`,{credentials:"include"});
-      const msgs=await res.json(); const box=document.getElementById("chatBox"); box.innerHTML="";
-      msgs.forEach(m=>{ box.innerHTML+=`<div class="msg"><b>${m.from_user}:</b> ${m.text}</div>`; });
-    }
-    function pinChat(user){
-      if(pinnedChats.includes(user)){ pinnedChats=pinnedChats.filter(u=>u!==user); }
-      else pinnedChats.push(user);
-      localStorage.setItem("pinnedChats",JSON.stringify(pinnedChats));
-      alert("Pinned chats updated!");
-    }
-
-    // ==== NOTIFICATIONS ====
-    async function renderNotifications(c){
-      c.innerHTML="<h2>Notifications</h2>";
-      if(pinnedChats.length===0){ c.innerHTML+="<p>No new chats.</p>"; return; }
-      pinnedChats.forEach(u=>{
-        c.innerHTML+=`<div class="card"><b>${u}</b> started a chat. <button onclick="openPrivateChat('${u}')">Open</button></div>`;
-      });
-    }
-
-    // ==== REPORT ====
-    function renderReport(c){
-      c.innerHTML=`<h2>Report Scammer</h2>
-      <div class="card">
-        <input id="accused" placeholder="Scammer Username">
-        <input id="reporterEmail" type="email" placeholder="Your Email">
-        <textarea id="reason" placeholder="Reason"></textarea>
-        <button class="action" onclick="sendReport()">Submit</button>
-        <div id="reportMsg"></div>
-      </div>`;
-    }
-    async function sendReport(){
-      const accused=document.getElementById("accused").value;
-      const reason=document.getElementById("reason").value;
-      const reporter=document.getElementById("reporterEmail").value;
-      const res=await fetch("/api/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accused,reason,reporter}),credentials:"include"});
-      document.getElementById("reportMsg").innerText=res.ok?"✅ Report Sent":"❌ Failed";
-    }
-
-    // ==== SETTINGS ====
-    function renderSettings(c){
-      c.innerHTML=`<h2>Settings</h2>
-        <button onclick="deleteAccount()">Delete My Account</button>`;
-    }
-    async function deleteAccount(){
-      if(confirm("Are you sure you want to delete your account? This cannot be undone.")){
-        await fetch("/api/deleteAccount",{method:"POST",credentials:"include"});
-        alert("Account deleted."); logout();
-      }
-    }
-
-    // ==== ADMIN ====
-    async function renderAdmin(c){
-      c.innerHTML="<h2>Admin Dashboard</h2>";
-      const users=await (await fetch("/api/admin/users",{credentials:"include"})).json();
-      const posts=await (await fetch("/api/admin/posts",{credentials:"include"})).json();
-      c.innerHTML+=`<h3>Users</h3><div class="grid">`+users.map(u=>`
-        <div class="card">
-          <b>${u.username}</b> (${u.email}) ${u.banned?"[BANNED]":""}
-          <br><button onclick="banUser('${u.username}')">🚫 Ban</button>
-          <button onclick="deleteUser('${u.username}')">🗑 Delete</button>
-        </div>`).join("")+"</div>";
-      c.innerHTML+=`<h3>Posts</h3><div class="grid">`+posts.map(p=>`
-        <div class="card">
-          <b>${p.title}</b> by ${p.username}
-          <br>${p.description}
-          <br><button onclick="adminDeletePost(${p.id})">🗑 Delete</button>
-          <button onclick="adminSuspendPost(${p.id})">⏸ Suspend</button>
-        </div>`).join("")+"</div>";
-    }
-    async function adminDeletePost(id){await fetch("/api/deletePostAdmin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});alert("Deleted");showTab("admin");}
-    async function adminSuspendPost(id){await fetch("/api/suspendPost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id}),credentials:"include"});alert("Suspended");showTab("admin");}
-    async function banUser(u){await fetch("/api/banUser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u}),credentials:"include"});alert("Banned");showTab("admin");}
-    async function deleteUser(u){await fetch("/api/deleteUser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u}),credentials:"include"});alert("Deleted");showTab("admin");}
-
-    showAuth();
-  </script>
-</body>
-</html>
-<script>
-  // ... everything as before ...
-
-  async function checkAuth() {
-    const res = await fetch("/api/loginStatus",{credentials:"include"});
-    if(res.ok){
-      me = await res.json();
-      showAuth();
-    } else {
-      showAuth();
-    }
-  }
-
-  checkAuth(); // <--- replaces showAuth();
-</script>
