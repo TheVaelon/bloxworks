@@ -5,7 +5,6 @@ const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
-const nodemailer = require("nodemailer");
 const http = require("http");
 const { Server } = require("socket.io");
 const helmet = require("helmet");
@@ -48,7 +47,7 @@ async function initTables() {
       password TEXT,
       is_admin BOOLEAN DEFAULT false,
       banned BOOLEAN DEFAULT false,
-      verified BOOLEAN DEFAULT false
+      verified BOOLEAN DEFAULT true
     )
   `);
 
@@ -80,24 +79,18 @@ async function initTables() {
   `);
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS verifications (
+    CREATE TABLE IF NOT EXISTS subscriptions (
       id SERIAL PRIMARY KEY,
-      email TEXT,
-      code TEXT,
-      expires BIGINT
+      user_id INT REFERENCES users(id),
+      plan TEXT,
+      paypal_sub_id TEXT,
+      status TEXT DEFAULT 'active',
+      started_at BIGINT,
+      expires_at BIGINT
     )
   `);
 }
 initTables();
-
-// ==== Nodemailer ====
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "bloxworksreports@gmail.com",
-    pass: "wnhx gcdt zqtj evsk"
-  }
-});
 
 // ==== Helpers ====
 function generateToken(user) {
@@ -138,40 +131,6 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// ===== Email Verification =====
-app.post("/api/requestCode", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email required" });
-
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const expires = Date.now() + 15 * 60 * 1000;
-
-  await pool.query("DELETE FROM verifications WHERE email=$1", [email]);
-  await pool.query("INSERT INTO verifications (email,code,expires) VALUES ($1,$2,$3)", [email, code, expires]);
-
-  transporter.sendMail({
-    from: "bloxworksreports@gmail.com",
-    to: email,
-    subject: "BloxWorks Verification Code",
-    text: `Your verification code is ${code}. It expires in 15 minutes.`
-  }, (err) => {
-    if (err) return res.status(500).json({ error: "Failed to send" });
-    res.json({ ok: true });
-  });
-});
-
-app.post("/api/verifyCode", async (req, res) => {
-  const { email, code } = req.body;
-  const result = await pool.query("SELECT * FROM verifications WHERE email=$1 AND code=$2", [email, code]);
-  const row = result.rows[0];
-  if (!row) return res.status(400).json({ error: "Invalid code" });
-  if (Date.now() > row.expires) return res.status(400).json({ error: "Code expired" });
-
-  await pool.query("DELETE FROM verifications WHERE email=$1", [email]);
-  await pool.query("UPDATE users SET verified=true WHERE email=$1", [email]);
-  res.json({ ok: true });
-});
-
 // ===== Auth =====
 app.post("/api/signup", async (req, res) => {
   const { username, email, password } = req.body;
@@ -183,7 +142,7 @@ app.post("/api/signup", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "INSERT INTO users (username,email,password,is_admin,verified) VALUES ($1,$2,$3,$4,false) RETURNING id,username,email,is_admin,verified",
+      "INSERT INTO users (username,email,password,is_admin,verified) VALUES ($1,$2,$3,$4,true) RETURNING id,username,email,is_admin,verified",
       [username, email, hash, is_admin]
     );
     const user = result.rows[0];
@@ -198,7 +157,6 @@ app.post("/api/login", async (req, res) => {
   const result = await pool.query("SELECT * FROM users WHERE username=$1", [username]);
   const user = result.rows[0];
   if (!user) return res.status(400).json({ error: "No user" });
-  if (!user.verified) return res.status(403).json({ error: "Not verified" });
   if (user.banned) return res.status(403).json({ error: "User banned" });
 
   const ok = await bcrypt.compare(password, user.password);
@@ -218,6 +176,25 @@ app.get("/api/loginStatus", (req,res)=>{
   } catch {
     res.status(401).end();
   }
+});
+
+// ===== Subscriptions =====
+app.post("/api/setSubscription", requireAuth, async (req,res)=>{
+  const { plan, paypal_sub_id, expires_at } = req.body;
+  if(!plan || !paypal_sub_id) return res.status(400).json({error:"Missing fields"});
+
+  await pool.query("DELETE FROM subscriptions WHERE user_id=$1",[req.user.id]);
+  await pool.query(
+    "INSERT INTO subscriptions (user_id, plan, paypal_sub_id, status, started_at, expires_at) VALUES ($1,$2,$3,'active',$4,$5)",
+    [req.user.id, plan, paypal_sub_id, Date.now(), expires_at||null]
+  );
+  res.json({ok:true});
+});
+
+app.get("/api/mySubscription", requireAuth, async (req,res)=>{
+  const { rows } = await pool.query("SELECT * FROM subscriptions WHERE user_id=$1 AND status='active'", [req.user.id]);
+  if(rows.length===0) return res.json({plan:"free"});
+  res.json(rows[0]);
 });
 
 // ===== Posts =====
@@ -262,15 +239,8 @@ app.post("/api/report", async (req, res) => {
   if (!accused || !reason || !reporter)
     return res.status(400).json({ error: "Missing fields" });
 
-  transporter.sendMail({
-    from: "bloxworksreports@gmail.com",
-    to: "bloxworksreports@gmail.com",
-    subject: "🚨 Scam Report",
-    text: `Reporter: ${reporter}\nAccused: ${accused}\nReason: ${reason}`
-  }, (err) => {
-    if (err) return res.status(500).json({ error: "Failed to send" });
-    res.json({ ok: true });
-  });
+  console.log("🚨 Report:", { accused, reason, reporter });
+  res.json({ ok: true });
 });
 
 // ===== Admin =====
@@ -318,11 +288,9 @@ io.on("connection", (socket) => {
     await pool.query("INSERT INTO messages (from_user,to_user,text) VALUES ($1,$2,$3)", 
       [msg.user, msg.to, msg.text]);
 
-    // Send message to sender + receiver
     io.to(msg.user).emit("message", msg);
     io.to(msg.to).emit("message", msg);
 
-    // Send notification to receiver
     if (msg.to !== msg.user) {
       io.to(msg.to).emit("notification", { from: msg.user, text: msg.text, time: Date.now() });
     }
